@@ -67,9 +67,6 @@ flash_mode:
 	ld hl, acknowledge_string
 	call send_string
 	call beep
-	ld hl, $05
-	call display_digit
-	call delay
 	jp main
 
 main:
