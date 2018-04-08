@@ -6,6 +6,6 @@ all:
 clean:
 	rm -f *.bin *.lst
 flash:
-	caflash $(TARGET).bin
+	caflash $(TARGET).bin $(PORT)
 serial:
 	screen $(PORT) 115200
