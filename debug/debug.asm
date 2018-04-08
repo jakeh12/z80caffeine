@@ -41,17 +41,106 @@ BOOT_MAIN_ADDR		equ	$0006	; main of the bootloader (should not be needed)
 	org RAM_START_ADDR
 	
 main:
-	;ld hl, hello_world_string
-	;call send_string
-	call display_snake
-	call beep
+	ld hl, $8000
+	ld bc, 10
+	call dump_memory
+	halt
 	jp main
-
 
 ;===============================================================================
 ; SUBROUTINES
 ;===============================================================================
 
+;-------------------------------------------------------------------------------
+; SUBROUTINE: DUMP_MEMORY
+;-------------------------------------------------------------------------------
+;  dumps bc bytes of memory pointed by hl
+; 
+;  inputs:
+;    hl - starting address
+;	 bc - number of bytes to dump
+;
+;  outputs:
+;	 none
+;
+;  modifies:
+;    af, hl, bc, de
+;-------------------------------------------------------------------------------
+dump_memory:
+	; convert byte to hex and send it
+	ld a, (hl)
+	call to_hex
+	ld a, d
+	call send_byte
+	ld a, e
+	call send_byte
+	ld a, ' '
+	call send_byte
+	; increment pointer and decrement total counter
+	inc hl
+	dec bc
+	ld a, b
+	cp 0
+	jp nz, dump_memory
+	ld a, c
+	cp 0
+	jp nz, dump_memory
+	; send <lf><cr> at the end
+	ld a, $0a
+	call send_byte
+	ld a, $0d
+	call send_byte
+	ret
+;-------------------------------------------------------------------------------
+; END OF SUBROUTINE: DUMP_MEMORY
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; SUBROUTINE: TO_HEX
+;-------------------------------------------------------------------------------
+;  converts an 8-bit number into two ascii characters
+; 
+;  inputs:
+;    a	- value to be converted to hex
+;    de	- first char in h and second char in l
+;
+;  outputs:
+;    none
+;
+;  modifies:
+;    af, bc, de
+;-------------------------------------------------------------------------------
+to_hex:
+	push af
+	push bc
+	ld c, 2
+	ld b, a
+	srl a			; extract the upper 4 bits
+	srl a
+	srl a
+	srl a
+_to_hex_offset:
+    cp 10
+    jp m, _to_hex_offset_0_9
+    add 'a'-10		; number is in range a-f
+    jr _to_hex_offset_done
+_to_hex_offset_0_9:
+    add '0'			; number is in range 0-9
+_to_hex_offset_done:
+	dec c
+	jp z, _to_hex_done
+	ld d, a
+	ld a, b
+	and %00001111		; extract the lower 4 bits
+	jr _to_hex_offset
+_to_hex_done:
+	ld e, a
+	pop bc
+	pop af
+	ret
+;-------------------------------------------------------------------------------
+; END OF SUBROUTINE: TO_HEX
+;-------------------------------------------------------------------------------
 
 ;-------------------------------------------------------------------------------
 ; SUBROUTINE: READ_BUTTONS_BLOCK
@@ -68,6 +157,8 @@ main:
 ;    af, bc
 ;-------------------------------------------------------------------------------
 read_buttons_block:
+	push af
+	push bc
 	in a, (BTN_IO_ADDR)
 	srl a
 	srl a
@@ -82,6 +173,8 @@ _read_buttons_block_pushed
 	and $03
 	cp $03
 	ld a, b
+	pop bc
+	pop af
 	ret z
 	jp _read_buttons_block_pushed
 ;-------------------------------------------------------------------------------
@@ -104,10 +197,16 @@ _read_buttons_block_pushed
 ;    af, bc, hl
 ;-------------------------------------------------------------------------------
 display_digit:
+	push af
+	push bc
+	push hl
 	ld bc, segment_digits
 	add hl, bc
 	ld a, (hl)
 	out DISP_IO_ADDR, a
+	pop hl
+	pop bc
+	pop af
 	ret
 segment_digits:
 	db $3f, $06, $5b, $4f, $66, $6d, $7d, $07, $7f, $6f, $77, $7c, $39, $5e, $79, $71
@@ -131,10 +230,12 @@ segment_digits:
 ;    af
 ;-------------------------------------------------------------------------------
 display_snake:
+	push af
 	ld a, 1
 display_snake_loop:
 	out DISP_IO_ADDR, a
 	cp a, 64
+	pop af
 	ret z
 	call delay
 	sla a
@@ -159,6 +260,9 @@ display_snake_loop:
 ;    af, bc, cd
 ;-------------------------------------------------------------------------------
 beep:
+	push af
+	push bc
+	push de
 	ld a, 0
 	ld c, $ff
 _beep_delay0:
@@ -170,6 +274,9 @@ _beep_delay1:
 	jp nz, _beep_delay1
 	dec c
 	jp nz, _beep_delay0
+	pop de
+	pop bc
+	pop af
 	ret
 ;-------------------------------------------------------------------------------
 ; END OF SUBROUTINE: BEEP
@@ -191,6 +298,8 @@ _beep_delay1:
 ;    c, de
 ;-------------------------------------------------------------------------------
 delay:
+	push bc
+	push de
 	ld c, $02
 _delay0:
 	ld d, $ff
@@ -203,6 +312,8 @@ _delay2:
 	jp nz, _delay1
 	dec c
 	jp nz, _delay0
+	pop de
+	pop bc
 	ret
 ;-------------------------------------------------------------------------------
 ; END OF SUBROUTINE: DELAY
@@ -225,6 +336,10 @@ _delay2:
 ;    af, bc, de, hl
 ;-------------------------------------------------------------------------------
 receive_data:
+	push af
+	push bc
+	push de
+	push hl
 	call receive_byte
 	ld c, a
 	call receive_byte
@@ -242,54 +357,13 @@ _receive_data_loop:
 	cp 0
 	jr nz, _receive_data_loop
 	ld bc, de
+	pop hl
+	pop de
+	pop bc
+	pop af
 	ret
 ;-------------------------------------------------------------------------------
 ; END OF SUBROUTINE: RECEIVE DATA
-;-------------------------------------------------------------------------------
-
-
-;-------------------------------------------------------------------------------
-; SUBROUTINE: TO_HEX
-;-------------------------------------------------------------------------------
-;  converts a number into hex ascii string
-; 
-;  inputs:
-;    a	- value to be converted to hex
-;    hl	- pointer to the beginning of the string to be saved
-;
-;  outputs:
-;    none
-;
-;  modifies:
-;    af, bc, hl
-;-------------------------------------------------------------------------------
-to_hex:
-	ld b, a
-	ld c, 2
-	srl a			; extract the upper 4 bits
-	srl a
-	srl a
-	srl a
-_to_hex_offset:
-        cp 10
-        jp m, _to_hex_offset_0_9
-        add 'a'-10		; number is in range a-f
-        jr _to_hex_offset_done
-_to_hex_offset_0_9:
-        add '0'			; number is in range 0-9
-_to_hex_offset_done:
-	ld (hl), a
-	inc hl
-	dec c
-	jr z, _to_hex_done
-	ld a, b
-	and %00001111		; extract the lower 4 bits
-	jr _to_hex_offset
-_to_hex_done:
-	ld (hl), $00		; add terminating NULL
-	ret
-;-------------------------------------------------------------------------------
-; END OF SUBROUTINE: TO_HEX
 ;-------------------------------------------------------------------------------
 
 
@@ -308,10 +382,14 @@ _to_hex_done:
 ;    af, hl
 ;-------------------------------------------------------------------------------
 receive_string:
+	push af
+	push hl
 	call receive_byte
 	cp $0d
 	jp nz, _receive_string_continue
 	ld (hl), 0
+	pop hl
+	pop af
 	ret
 _receive_string_continue:
 	ld (hl), a
@@ -338,9 +416,13 @@ _receive_string_continue:
 ;    af, hl, b
 ;-------------------------------------------------------------------------------
 send_string:
+	push af
+	push hl
 	ld a, (hl)
 	cp 0
 	jp nz, _send_string_send_byte
+	pop hl
+	pop af
 	ret
 _send_string_send_byte:
 	call send_byte
@@ -391,16 +473,20 @@ receive_byte:
 ;    none
 ;
 ;  modifies:
-;    af, b
+;    af, bc
 ;-------------------------------------------------------------------------------
 send_byte:
-	ld b, a
+	push af
+	push bc
+	ld c, a
 _send_byte_wait:
 	in a, (SER_FLAG_IO_ADDR)
 	bit SER_FLAG_TXF_BIT, a
 	jp nz, _send_byte_wait
-	ld a, b
+	ld a, c
 	out (SER_DATA_IO_ADDR), a
+	pop bc
+	pop af
 	ret
 ;-------------------------------------------------------------------------------
 ; END OF SUBROUTINE: SEND_BYTE

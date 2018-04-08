@@ -1,27 +1,23 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <ftdi.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <termios.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 int main(int argc, const char * argv[]) {
     
-    if (argc < 3)
+    if (argc < 2)
     {
         fprintf(stderr, "missing arguments\n");
-        printf("usage: caflash binary_file serial_port\nexample: ");
+        printf("usage: caflash binary_file_to_flash\n");
         exit(1);
     }
     
     char file_path[120];
     strcpy(file_path, argv[1]);
-    // "/Users/jhladik/Documents/Development/assembly/ram/beep_ram.bin";
-    char serial_path[120];
-    strcpy(serial_path, argv[2]);
-    // "/dev/tty.usbserial-A906HNC1";
     
     FILE *file = fopen(file_path, "rb");
     if (!file) {
@@ -40,78 +36,66 @@ int main(int argc, const char * argv[]) {
     
     printf("program: ");
     int i;
-    for (i = 2; i < length; i++)
+    for (i = 2; i < length + 2; i++)
     {
         printf("%02x ", data[i]);
     }
     printf("\n");
-    free(data);
     
     printf("length: %d\n", length);
     
-    int ser;
-    ser = open(serial_path, O_RDWR | O_NOCTTY | O_NDELAY);
-    if (ser == -1) {
-        fprintf(stderr, "opening serial port %s failed: %s\n", serial_path, strerror(errno));
+	
+	int ret;
+    struct ftdi_context *ftdi;
+    ftdi = ftdi_new();
+    ret = ftdi_usb_open(ftdi, 0x0403, 0x6001);
+	if (ret < 0)
+	{
+	    fprintf(stderr, "opening serial port failed.\n");
 		printf("hint: is the power on and the usb plugged in?\n");
-        exit(1);
-    }
-    
-    fcntl(ser, F_SETFL, 0);
-    
-    struct termios options;
-    tcgetattr(ser, &options);
-    cfsetispeed(&options, B4800);
-    cfsetospeed(&options, B4800);
-    options.c_cflag |= (CLOCAL | CREAD);
-    options.c_cflag &= ~CSIZE;
-    options.c_cflag |= CS8;
-    options.c_cflag &= ~PARENB;
-    options.c_cflag &= ~CSTOPB;
-    options.c_cflag &= ~CSIZE;
-    options.c_cflag |= CS8;
-    options.c_cflag &= ~CRTSCTS;
-    options.c_iflag &= ~(IXON | IXOFF | IXANY);
-    options.c_oflag &= ~OPOST;
-    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    options.c_cc[VTIME] = 10;
-    options.c_cc[VMIN] = 0;
-    tcsetattr(ser, TCSANOW, &options);
-    
+	    ftdi_free(ftdi);
+	    exit(1);
+	}
+	ftdi_usb_purge_buffers(ftdi);
+	
+    ftdi_set_baudrate(ftdi, 4800);
+    ftdi_set_line_property(ftdi, 8, STOP_BIT_1, NONE);
+	
     printf("uploading\n");
+    ret = ftdi_write_data(ftdi, data, length + 2);
+	printf("\n\n%d\n\n", ret);
+	if (ret < 0)
+	{
+	    fprintf(stderr, "writing through serial port failed.\n");
+	    printf("upload failed\n");
+	    ftdi_usb_close(ftdi);
+	    ftdi_free(ftdi);
+	    exit(1);
+	}
     
-    ssize_t n = write(ser, data, length + 2);
-    usleep ((7 + 25) * length);
-
-    if (n < 0) {
-        fprintf(stderr, "writing through serial port %s failed: %s\n", serial_path, strerror(errno));
-        printf("upload failed\n");
-        close(ser);
-        exit(1);
-    }
-    
+	
+	printf("waiting for ack...\n");
+	printf ("hint: are you in flash mode?\n");
     char ack[4] = {0x00, 0x00, 0x00, 0x00};
-    n = read(ser, ack, 3);
-    
-    if (n == 0) {
-        fprintf(stderr, "timeout ack from serial port %s: %s\n", serial_path, strerror(errno));
-		printf ("hint: are you in flash mode?\n");
-        printf("upload failed\n");
-        close(ser);
-        exit(1);
-    } else if (n < 0) {
-        fprintf(stderr, "error reading serial port %s: %s\n", serial_path, strerror(errno));
-        printf("upload failed\n");
-        close(ser);
-        exit(1);
-
-    }
-    
+	usleep(10000);
+    ret = ftdi_read_data(ftdi, (unsigned char*)ack, 3);
+	if (ret == 0)
+	{
+	    fprintf(stderr, "no acknowledge received.\n");
+	    printf("upload failed\n");
+	    ftdi_usb_close(ftdi);
+	    ftdi_free(ftdi);
+	    exit(1);
+	}
+	
     if (strcmp(ack, "ACK") == 0)
     {
         printf("upload succesful\n");
     }
-
-    close(ser);
+	
+    ftdi_usb_close(ftdi);
+    ftdi_free(ftdi);
+	free(data);
+    
     return 0;
 }

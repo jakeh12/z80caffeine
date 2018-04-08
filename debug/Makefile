@@ -1,4 +1,4 @@
-TARGET=template
+TARGET=debug
 PORT=/dev/tty.usbserial-A906HNC1
 
 all:
@@ -6,6 +6,6 @@ all:
 clean:
 	rm -f *.bin *.lst
 flash:
-	caflash $(TARGET).bin
+	caflash $(TARGET).bin $(PORT)
 serial:
 	screen $(PORT) 115200
